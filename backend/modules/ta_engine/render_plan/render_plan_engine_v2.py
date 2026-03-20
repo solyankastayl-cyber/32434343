@@ -545,7 +545,8 @@ class RenderPlanEngineV2:
                 "alternative": None,
                 "has_figure": False,
                 "status": "no_active_figure",
-                "reason": "No pattern candidates detected",
+                "reason": "Market in channel/range mode — no reversal or continuation figure detected",
+                "hint": "This is normal. Wait for breakout or pattern formation.",
                 "all_detected": [],
             }
         
@@ -635,68 +636,74 @@ class RenderPlanEngineV2:
         self, liquidity: Dict[str, Any], current_price: float
     ) -> Dict[str, Any]:
         """
-        Build liquidity layer.
+        Build liquidity layer for chart rendering.
         
-        Limits:
-        - 1-2 key liquidity elements near price
-        - BSL/SSL
-        - Recent sweep
+        LIMITS:
+        - Max 2 BSL (above price)
+        - Max 2 SSL (below price)
+        - 1 recent sweep
         
-        Includes:
-        - Equal highs/lows
-        - Order blocks
-        - FVG/imbalance
-        - Displacement
+        Sources:
+        - pools (BSL/SSL)
+        - equal_highs / equal_lows
+        - sweeps
         """
         if not liquidity:
             return {
-                "bsl": None,
-                "ssl": None,
-                "key_levels": [],
+                "bsl": [],
+                "ssl": [],
                 "sweeps": [],
-                "order_blocks": [],
-                "fvg": [],
             }
         
-        # Get BSL/SSL
-        bsl = liquidity.get("bsl")
-        ssl = liquidity.get("ssl")
+        # Extract BSL/SSL from pools
+        pools = liquidity.get("pools", [])
+        bsl_list = [p for p in pools if p.get("type") == "buy_side_liquidity" and p.get("status") == "active"]
+        ssl_list = [p for p in pools if p.get("type") == "sell_side_liquidity" and p.get("status") == "active"]
         
-        # Get equal highs/lows nearest to price
-        eq_highs = liquidity.get("eq_highs", [])
-        eq_lows = liquidity.get("eq_lows", [])
+        # Sort by distance to current price, take nearest
+        bsl_list.sort(key=lambda x: abs(x.get("price", 0) - current_price))
+        ssl_list.sort(key=lambda x: abs(x.get("price", 0) - current_price))
         
-        all_eq = eq_highs + eq_lows
+        # Format for chart rendering (max 2 each)
+        bsl_formatted = [
+            {
+                "price": p.get("price"),
+                "strength": p.get("strength"),
+                "touches": p.get("touches"),
+                "label": p.get("label"),
+            }
+            for p in bsl_list[:2]
+        ]
         
-        # Sort by distance to current price
-        all_eq.sort(key=lambda x: abs(x.get("price", 0) - current_price))
+        ssl_formatted = [
+            {
+                "price": p.get("price"),
+                "strength": p.get("strength"),
+                "touches": p.get("touches"),
+                "label": p.get("label"),
+            }
+            for p in ssl_list[:2]
+        ]
         
-        key_levels = all_eq[:self.MAX_LIQUIDITY_ELEMENTS]
-        
-        # Get recent sweep
-        sweeps = liquidity.get("sweeps", [])
-        recent_sweeps = sweeps[-1:] if sweeps else []
-        
-        # Order blocks (most relevant)
-        obs = liquidity.get("order_blocks", [])
-        relevant_obs = [
-            ob for ob in obs
-            if self._is_near_price({"breakout_level": ob.get("price", ob.get("upper", 0))}, current_price)
-        ][:2]
-        
-        # FVG
-        fvg_list = liquidity.get("fvg", liquidity.get("imbalances", []))
-        recent_fvg = fvg_list[-2:] if fvg_list else []
+        # Get most recent sweep
+        all_sweeps = liquidity.get("sweeps", [])
+        recent_sweep = None
+        if all_sweeps:
+            # Most recent by index
+            recent_sweep = max(all_sweeps, key=lambda x: x.get("index", 0))
+            recent_sweep = {
+                "type": recent_sweep.get("type"),
+                "price": recent_sweep.get("sweep_price"),
+                "pool_price": recent_sweep.get("pool_price"),
+                "direction": recent_sweep.get("direction"),
+                "time": recent_sweep.get("time"),
+                "description": recent_sweep.get("description"),
+            }
         
         return {
-            "bsl": bsl,
-            "ssl": ssl,
-            "key_levels": key_levels,
-            "sweeps": recent_sweeps,
-            "order_blocks": relevant_obs,
-            "fvg": recent_fvg,
-            "premium_discount": liquidity.get("premium_discount"),
-            "dealing_range": liquidity.get("dealing_range"),
+            "bsl": bsl_formatted,
+            "ssl": ssl_formatted,
+            "sweeps": [recent_sweep] if recent_sweep else [],
         }
     
     # ═══════════════════════════════════════════════════════════════

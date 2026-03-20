@@ -1,36 +1,44 @@
 # TA Engine — PRD
 
-## Problem Statement
-Модуль теханализа — wiring render_plan → chart для читаемого TA терминала.
+## Status: 85% READY
 
-## Architecture
-- **Research** = только ТА: structure, levels, indicators, execution, render_plan
-- **Chart Lab** = только prediction/hypotheses
+## What Works (Backend)
 
-## Implemented (2026-03-20)
-
-### Backend
-
-**1. Render Plan V2 — Structure Layer**
-- Max 4 swings (приоритет HH/LL над HL/LH)
-- Format: `{time, price, type: HH/HL/LH/LL}`
-- BOS/CHOCH как события
-
-**2. Render Plan V2 — Levels Layer**
-- Max 5 levels, ранжирование по strength
-- Sources: supports, resistances, swing HH/LL
-- Дедупликация 0.5%
-
-**3. Smart Indicator Selection**
+### Render Plan V2 — All Layers
 ```
-Trending (up/down) → EMA 20/50 + RSI
-Ranging → BBands + RSI  
-High Volatility → VWAP + ATR
+✅ MARKET STATE
+   trend: uptrend (weak)
+   wyckoff: markup
+
+✅ STRUCTURE (max 4 swings)
+   4 swings: HL, HH, HH, LL
+   bias: neutral
+
+✅ LEVELS (max 5)
+   3 levels: 2 resistance, 1 support
+
+✅ INDICATORS (smart selection)
+   Trending → EMA 20/50 + RSI
+   Ranging → BBands + RSI
+   High Volatility → VWAP + ATR
+
+✅ PATTERNS
+   has_figure: false (честно)
+   reason: Market in channel/range mode
+
+✅ LIQUIDITY
+   BSL: 2 zones (71372, 74034)
+   SSL: 2 zones (68877, 66490)
+   Sweeps: 1 (SSL @ 68877)
+
+✅ EXECUTION
+   status: no_trade
+   reason: unified setup invalid
 ```
 
-**4. 6 Timeframes — РАБОТАЮТ**
+### 6 Timeframes — ISOLATED
 ```
-4H:   uptrend   | 4 swings | 3 levels
+4H:   uptrend   | 4 swings | 3 levels | EMA+RSI | 2 BSL, 2 SSL
 1D:   downtrend | 4 swings | 3 levels
 7D:   downtrend | 4 swings | 2 levels
 30D:  downtrend | 4 swings | 3 levels
@@ -38,39 +46,35 @@ High Volatility → VWAP + ATR
 1Y:   downtrend | 4 swings | 3 levels
 ```
 
-### Frontend
+### Pattern Engine
+- 4 validators: Triangle, Channel, DoublePattern, HeadShoulders
+- Channels filtered as market_state (correct)
+- Real patterns (double_top, triangle) shown when detected
+- has_figure: false = honest "no pattern"
 
-**1. TF Switching**
-- `selectedTF` триггерит fetch или использует cache
-- `tfMap` хранит данные для всех загруженных TF
-- UI кнопки: 4H, 1D, 7D, 30D, 180D, 1Y
+### Liquidity Engine
+- BSL/SSL from pools
+- Sweeps with direction + description
+- Max 2 BSL, 2 SSL for readability
 
-**2. Data Flow**
-```
-selectedTF → fetch /api/ta-engine/mtf/{symbol}?timeframes={TF}
-→ data.tf_map[selectedTF]
-→ setSetupData(activeTFData)
-→ renderPlan = setupData.render_plan
-→ chartStructure from renderPlan.structure.swings
-→ levels from renderPlan.levels
-→ ResearchChart renders
-```
+## What's Left
 
-**3. chartStructure Build**
-```javascript
-chartStructure = {
-  labels: swings.map(s => ({time, price, label: s.type})),
-  breaks: [bos, choch],
-  legs: []
-}
-```
+### Frontend Integration
+- [ ] Render swings on chart (HH green, LL red)
+- [ ] Render levels as horizontal lines
+- [ ] Render BSL/SSL zones
+- [ ] Show execution badge always
 
-## Key Files
-- `render_plan_engine_v2.py` — limits, smart indicators
-- `per_tf_builder.py` — render_plan в MTF
+### Pattern Detection
+- When real pattern exists → show on chart
+- Currently: no active patterns (market in range)
+
+## Files Modified
+- `render_plan_engine_v2.py` — all layers, smart indicators, liquidity fix
+- `per_tf_builder.py` — render_plan integration
 - `ResearchViewNew.jsx` — TF switching, data flow
 
 ## Next Tasks
-1. Визуальная валидация (когда preview восстановится)
-2. Liquidity layer (bsl/ssl detection)
-3. Pattern Engine (65 → 1 реальный)
+1. Frontend: render structure/levels/liquidity на графике
+2. Test with asset that HAS pattern (ETH wedge, etc.)
+3. Visual validation when preview restores
