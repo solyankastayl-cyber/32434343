@@ -873,26 +873,28 @@ const ResearchView = () => {
       
       // Add BSL (above price)
       (rpLiquidity.bsl || []).forEach(bsl => {
+        const price = typeof bsl.price === 'number' ? bsl.price : parseFloat(bsl.price);
         pools.push({
           type: 'buy_side_liquidity',
           side: 'high',
-          price: bsl.price,
+          price: price,
           strength: bsl.strength,
           touches: bsl.touches,
-          label: bsl.label || `BSL @ ${bsl.price?.toFixed(0)}`,
+          label: bsl.label || `BSL @ ${price ? Math.round(price) : 'N/A'}`,
           status: 'active',
         });
       });
       
       // Add SSL (below price)
       (rpLiquidity.ssl || []).forEach(ssl => {
+        const price = typeof ssl.price === 'number' ? ssl.price : parseFloat(ssl.price);
         pools.push({
           type: 'sell_side_liquidity',
           side: 'low',
-          price: ssl.price,
+          price: price,
           strength: ssl.strength,
           touches: ssl.touches,
-          label: ssl.label || `SSL @ ${ssl.price?.toFixed(0)}`,
+          label: ssl.label || `SSL @ ${price ? Math.round(price) : 'N/A'}`,
           status: 'active',
         });
       });
