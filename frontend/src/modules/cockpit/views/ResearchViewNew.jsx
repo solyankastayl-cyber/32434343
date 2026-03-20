@@ -661,6 +661,16 @@ const ResearchView = () => {
       setCandles(activeTFData.candles || []);
       setActivePatternId('primary');
       
+      // 🔥 CRITICAL LOG: Check render_plan
+      const rp = activeTFData.render_plan;
+      console.log('[MTF] TF:', selectedTF);
+      console.log('[MTF] render_plan exists:', !!rp);
+      if (rp) {
+        console.log('[MTF] Structure swings:', rp.structure?.swings?.length);
+        console.log('[MTF] Levels:', rp.levels?.length);
+        console.log('[MTF] Execution:', rp.execution?.status);
+      }
+      
       console.log('[MTF] Loaded tf_map:', Object.keys(data.tf_map || {}));
       console.log('[MTF] Active TF:', selectedTF, 'candles:', activeTFData.candles?.length);
       
@@ -681,17 +691,23 @@ const ResearchView = () => {
   // Update setupData when selectedTF changes
   useEffect(() => {
     if (tfMap[selectedTF]) {
+      // Data already cached — use it
       const tfData = tfMap[selectedTF];
       setSetupData(tfData);
       setCandles(tfData.candles || []);
-      console.log('[MTF] Switched to TF:', selectedTF, 'data keys:', Object.keys(tfData));
+      console.log('[MTF] Switched to cached TF:', selectedTF, 'render_plan:', !!tfData.render_plan);
+    } else {
+      // Data not cached — fetch it
+      console.log('[MTF] TF not in cache, fetching:', selectedTF);
+      fetchSetup();
     }
-  }, [selectedTF, tfMap]);
+  }, [selectedTF, tfMap, fetchSetup]);
 
   // Initial load
   useEffect(() => {
     fetchSetup();
-  }, [fetchSetup]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol]); // Only re-fetch when symbol changes
 
   // Handle symbol change
   const handleSymbolSelect = (s) => {

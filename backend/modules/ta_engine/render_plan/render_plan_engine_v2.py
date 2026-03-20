@@ -104,8 +104,8 @@ class RenderPlanEngineV2:
             # Layer B2: Key Levels (MAX 5 for readability)
             "levels": self._build_levels_layer(structure, liquidity, current_price),
             
-            # Layer C: Indicators
-            "indicators": self._build_indicators_layer(indicators, render_mode),
+            # Layer C: Indicators (with smart selection based on market_state)
+            "indicators": self._build_indicators_layer(indicators, render_mode, market_state),
             
             # Layer D: Pattern Figures (ONLY real patterns, NO channels)
             "patterns": self._build_patterns_layer(patterns, current_price),
@@ -431,60 +431,96 @@ class RenderPlanEngineV2:
 
     
     # ═══════════════════════════════════════════════════════════════
-    # LAYER C: INDICATORS
+    # LAYER C: INDICATORS (SMART SELECTION)
     # ═══════════════════════════════════════════════════════════════
     
-    def _build_indicators_layer(self, indicators: Dict[str, Any], render_mode: str = "figure_mode") -> Dict[str, Any]:
+    def _build_indicators_layer(
+        self, 
+        indicators: Dict[str, Any], 
+        render_mode: str = "figure_mode",
+        market_state: Dict[str, Any] = None,
+    ) -> Dict[str, Any]:
         """
-        Build indicators layer.
+        Build indicators layer with SMART SELECTION.
         
-        Returns render-ready overlays and panes.
-        Limits: 2 overlays, 1 pane by default.
+        Like a trader, not a bot:
+        - Trending market → EMA 20/50 + RSI
+        - Ranging market → BBands + RSI
+        - High volatility → VWAP + ATR
         
-        In range_mode: prefer RSI/Stochastic over trend indicators.
-        In figure_mode: prefer EMA/trend indicators.
+        STRICT LIMITS: 2 overlays, 1 pane
         """
         if not indicators:
             return {
                 "overlays": [],
                 "panes": [],
-                "contributions": [],
             }
         
-        # Get overlays (main chart)
         all_overlays = indicators.get("overlays", [])
-        
-        # Get panes (separate charts)
         all_panes = indicators.get("panes", [])
         
-        # In range_mode, prefer oscillators
-        if render_mode == "range_mode":
-            # Prefer RSI/Stochastic in panes
-            preferred_panes = [p for p in all_panes if p.get("id", "").lower() in ["rsi", "stochastic", "stoch_rsi"]]
-            other_panes = [p for p in all_panes if p not in preferred_panes]
-            sorted_panes = preferred_panes + other_panes
-            
-            # Minimal overlays in range mode
-            sorted_overlays = all_overlays[:1]
-        else:
-            # In figure_mode, prefer trend indicators
-            sorted_overlays = sorted(
-                all_overlays,
-                key=lambda x: abs(x.get("score", 0)),
-                reverse=True
-            )
-            sorted_panes = sorted(
-                all_panes,
-                key=lambda x: abs(x.get("score", 0)),
-                reverse=True
-            )
+        # Extract market context
+        trend = market_state.get("trend_direction", "unknown") if market_state else "unknown"
+        volatility = market_state.get("volatility_state", "normal") if market_state else "normal"
+        
+        # Smart selection based on market state
+        selected_overlays = []
+        selected_panes = []
+        
+        # Helper to find indicator by id
+        def find_ind(ind_list, ind_id):
+            for ind in ind_list:
+                if ind.get("id", "").lower() == ind_id.lower():
+                    return ind
+            return None
+        
+        # HIGH VOLATILITY → VWAP + ATR
+        if volatility in ["high", "extreme"]:
+            vwap = find_ind(all_overlays, "vwap")
+            if vwap:
+                selected_overlays.append(vwap)
+            atr = find_ind(all_panes, "atr")
+            if atr:
+                selected_panes.append(atr)
+        
+        # TRENDING MARKET → EMA 20/50 + RSI
+        elif trend in ["uptrend", "downtrend", "strong_uptrend", "strong_downtrend"]:
+            ema20 = find_ind(all_overlays, "ema_20")
+            ema50 = find_ind(all_overlays, "ema_50")
+            if ema20:
+                selected_overlays.append(ema20)
+            if ema50:
+                selected_overlays.append(ema50)
+            rsi = find_ind(all_panes, "rsi")
+            if rsi:
+                selected_panes.append(rsi)
+        
+        # RANGING MARKET → BBands + RSI
+        elif trend in ["ranging", "sideways", "consolidation"]:
+            bbands = find_ind(all_overlays, "bbands") or find_ind(all_overlays, "bollinger")
+            if bbands:
+                selected_overlays.append(bbands)
+            rsi = find_ind(all_panes, "rsi")
+            if rsi:
+                selected_panes.append(rsi)
+        
+        # FALLBACK → EMA + RSI
+        if not selected_overlays:
+            ema20 = find_ind(all_overlays, "ema_20")
+            ema50 = find_ind(all_overlays, "ema_50")
+            if ema20:
+                selected_overlays.append(ema20)
+            if ema50:
+                selected_overlays.append(ema50)
+        
+        if not selected_panes:
+            rsi = find_ind(all_panes, "rsi")
+            if rsi:
+                selected_panes.append(rsi)
         
         return {
-            "overlays": sorted_overlays[:self.MAX_INDICATOR_OVERLAYS],
-            "panes": sorted_panes[:self.MAX_INDICATOR_PANES],
-            "all_overlays": all_overlays,  # Full list for user expansion
-            "all_panes": all_panes,        # Full list for user expansion
-            "contributions": indicators.get("contributions", []),
+            "overlays": selected_overlays[:self.MAX_INDICATOR_OVERLAYS],
+            "panes": selected_panes[:self.MAX_INDICATOR_PANES],
         }
     
     # ═══════════════════════════════════════════════════════════════

@@ -1,62 +1,76 @@
-# TA Engine - PRD
+# TA Engine — PRD
 
 ## Problem Statement
-Модуль теханализа — перенос render_plan из Chart Lab в Research + жёсткий wiring render_plan → chart.
+Модуль теханализа — wiring render_plan → chart для читаемого TA терминала.
 
-## Architecture  
-- **Research** = только ТА: market_state, structure, indicators, patterns, liquidity, execution, render_plan
+## Architecture
+- **Research** = только ТА: structure, levels, indicators, execution, render_plan
 - **Chart Lab** = только prediction/hypotheses
 
 ## Implemented (2026-03-20)
 
-### Backend: Render Plan V2
-1. **Structure Layer** (max 4 swings)
-   - Swings с type HH/HL/LH/LL
-   - Приоритизация: HH/LL важнее HL/LH
-   - BOS/CHOCH как события
+### Backend
 
-2. **Levels Layer** (max 5 levels)
-   - Источники: structure supports/resistances, liquidity, swing HH/LL
-   - Ранжирование по strength
-   - Дедупликация в пределах 0.5%
+**1. Render Plan V2 — Structure Layer**
+- Max 4 swings (приоритет HH/LL над HL/LH)
+- Format: `{time, price, type: HH/HL/LH/LL}`
+- BOS/CHOCH как события
 
-3. **Indicators Layer**
-   - Max 2 overlays (EMA 20, EMA 50)
-   - Max 1 pane (RSI)
+**2. Render Plan V2 — Levels Layer**
+- Max 5 levels, ранжирование по strength
+- Sources: supports, resistances, swing HH/LL
+- Дедупликация 0.5%
 
-4. **Execution Layer**
-   - ВСЕГДА виден
-   - status + reason + detail
-
-### Frontend Wiring
-1. **ResearchViewNew.jsx**:
-   - `chartStructure` строится из `render_plan.structure.swings`
-   - `levels` берётся из `render_plan.levels`
-   - `renderPlan` передаётся в RenderPlanOverlay
-
-2. **per_tf_builder.py**:
-   - Добавлен render_plan в MTF response
-
-## Current State (4H Timeframe)
+**3. Smart Indicator Selection**
 ```
-✅ Structure: 4 swings (HL, HH, HH, LL)
-✅ Levels: 3 (2 resistance, 1 support)
-✅ Indicators: EMA 20/50 + RSI
-✅ Execution: no_trade + reason
+Trending (up/down) → EMA 20/50 + RSI
+Ranging → BBands + RSI  
+High Volatility → VWAP + ATR
 ```
 
-## Preview Status
-⚠️ Preview Unavailable — инфраструктурная проблема Emergent
-✅ Backend работает локально
-✅ Frontend компилируется без ошибок
+**4. 6 Timeframes — РАБОТАЮТ**
+```
+4H:   uptrend   | 4 swings | 3 levels
+1D:   downtrend | 4 swings | 3 levels
+7D:   downtrend | 4 swings | 2 levels
+30D:  downtrend | 4 swings | 3 levels
+180D: downtrend | 4 swings | 3 levels
+1Y:   downtrend | 4 swings | 3 levels
+```
+
+### Frontend
+
+**1. TF Switching**
+- `selectedTF` триггерит fetch или использует cache
+- `tfMap` хранит данные для всех загруженных TF
+- UI кнопки: 4H, 1D, 7D, 30D, 180D, 1Y
+
+**2. Data Flow**
+```
+selectedTF → fetch /api/ta-engine/mtf/{symbol}?timeframes={TF}
+→ data.tf_map[selectedTF]
+→ setSetupData(activeTFData)
+→ renderPlan = setupData.render_plan
+→ chartStructure from renderPlan.structure.swings
+→ levels from renderPlan.levels
+→ ResearchChart renders
+```
+
+**3. chartStructure Build**
+```javascript
+chartStructure = {
+  labels: swings.map(s => ({time, price, label: s.type})),
+  breaks: [bos, choch],
+  legs: []
+}
+```
+
+## Key Files
+- `render_plan_engine_v2.py` — limits, smart indicators
+- `per_tf_builder.py` — render_plan в MTF
+- `ResearchViewNew.jsx` — TF switching, data flow
 
 ## Next Tasks
-1. Визуальная валидация когда preview восстановится
-2. Проверка 6 ТФ (1D, 7D, 30D, 180D, 1Y)
-3. Улучшение liquidity detection (bsl/ssl пустые)
-
-## Key Files Modified
-- `/app/backend/modules/ta_engine/render_plan/render_plan_engine_v2.py` — limits, levels layer
-- `/app/backend/modules/ta_engine/per_tf_builder.py` — render_plan в MTF
-- `/app/backend/modules/ta_engine/ta_routes.py` — structure_viz integration
-- `/app/frontend/src/modules/cockpit/views/ResearchViewNew.jsx` — chartStructure, levels from render_plan
+1. Визуальная валидация (когда preview восстановится)
+2. Liquidity layer (bsl/ssl detection)
+3. Pattern Engine (65 → 1 реальный)
