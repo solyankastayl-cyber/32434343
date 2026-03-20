@@ -1,55 +1,62 @@
-# TA Engine - Technical Analysis Module PRD
+# TA Engine - PRD
 
 ## Problem Statement
-Модуль теханализа для GitHub проекта. Перенос render_plan/TA-визуализации из Chart Lab в Research с полной изоляцией.
+Модуль теханализа — перенос render_plan из Chart Lab в Research + жёсткий wiring render_plan → chart.
 
-## Architecture
+## Architecture  
 - **Research** = только ТА: market_state, structure, indicators, patterns, liquidity, execution, render_plan
 - **Chart Lab** = только prediction/hypotheses
 
-## What's Been Implemented
+## Implemented (2026-03-20)
 
-### Date: 2026-03-20
+### Backend: Render Plan V2
+1. **Structure Layer** (max 4 swings)
+   - Swings с type HH/HL/LH/LL
+   - Приоритизация: HH/LL важнее HL/LH
+   - BOS/CHOCH как события
 
-1. **Frontend Migration Complete**
-   - ChartLabView.jsx: Удалены useRenderPlan, RenderPlanOverlay, showRenderPlan
-   - ResearchViewNew.jsx: Добавлены useRenderPlan hook, RenderPlanOverlay, showTAOverlay state, TA toggle кнопка
-   - Изоляция состояний между Research и Chart Lab
+2. **Levels Layer** (max 5 levels)
+   - Источники: structure supports/resistances, liquidity, swing HH/LL
+   - Ранжирование по strength
+   - Дедупликация в пределах 0.5%
 
-2. **Backend Fix: Structure Visualization**
-   - ta_routes.py: Интегрирован StructureVisualizationBuilder для построения визуальных данных (swings, BOS, CHOCH)
-   - render-plan-v2 endpoint теперь возвращает 6 pivot points с HH/HL/LH/LL labels
+3. **Indicators Layer**
+   - Max 2 overlays (EMA 20, EMA 50)
+   - Max 1 pane (RSI)
 
-### Backend Render Plan V2 Status (4H timeframe):
-- ✅ market_state: uptrend (weak), wyckoff markup
-- ✅ structure: 6 swings с классификацией HH/HL/LH/LL
-- ✅ indicators: EMA 20/50, RSI
-- ✅ patterns: has_figure=False (честное "No active figure")
-- ⚠️ liquidity: bsl/ssl пустые (нет явной ликвидности)
-- ✅ execution: no_trade с reason "unified setup invalid"
+4. **Execution Layer**
+   - ВСЕГДА виден
+   - status + reason + detail
 
-## Core Requirements
-1. Каждый ТФ = изолированный render_plan
-2. Max 6 swings, 1 BOS, 1 CHOCH
-3. Max 2 indicator overlays, 1 pane
-4. Execution ВСЕГДА видимый с reason
+### Frontend Wiring
+1. **ResearchViewNew.jsx**:
+   - `chartStructure` строится из `render_plan.structure.swings`
+   - `levels` берётся из `render_plan.levels`
+   - `renderPlan` передаётся в RenderPlanOverlay
 
-## Backlog (P0/P1/P2)
+2. **per_tf_builder.py**:
+   - Добавлен render_plan в MTF response
 
-### P0 - Critical
-- [ ] Frontend визуализация swings на графике
-- [ ] Проверка 6 ТФ (4H, 1D, 7D, 30D, 180D, 1Y)
+## Current State (4H Timeframe)
+```
+✅ Structure: 4 swings (HL, HH, HH, LL)
+✅ Levels: 3 (2 resistance, 1 support)
+✅ Indicators: EMA 20/50 + RSI
+✅ Execution: no_trade + reason
+```
 
-### P1 - Important
-- [ ] Liquidity слой - заполнить bsl/ssl данными
-- [ ] BOS/CHOCH detection и визуализация
-
-### P2 - Nice to Have
-- [ ] Chain highlighting
-- [ ] Alerts
-- [ ] localStorage для selectedTF
+## Preview Status
+⚠️ Preview Unavailable — инфраструктурная проблема Emergent
+✅ Backend работает локально
+✅ Frontend компилируется без ошибок
 
 ## Next Tasks
-1. Валидация frontend отображения structure swings
-2. Проверка изоляции 6 таймфреймов
-3. Добавление liquidity detection
+1. Визуальная валидация когда preview восстановится
+2. Проверка 6 ТФ (1D, 7D, 30D, 180D, 1Y)
+3. Улучшение liquidity detection (bsl/ssl пустые)
+
+## Key Files Modified
+- `/app/backend/modules/ta_engine/render_plan/render_plan_engine_v2.py` — limits, levels layer
+- `/app/backend/modules/ta_engine/per_tf_builder.py` — render_plan в MTF
+- `/app/backend/modules/ta_engine/ta_routes.py` — structure_viz integration
+- `/app/frontend/src/modules/cockpit/views/ResearchViewNew.jsx` — chartStructure, levels from render_plan

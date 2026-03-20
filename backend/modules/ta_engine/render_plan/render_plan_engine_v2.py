@@ -101,6 +101,9 @@ class RenderPlanEngineV2:
             # Layer B: Structure
             "structure": self._build_structure_layer(structure),
             
+            # Layer B2: Key Levels (MAX 5 for readability)
+            "levels": self._build_levels_layer(structure, liquidity, current_price),
+            
             # Layer C: Indicators
             "indicators": self._build_indicators_layer(indicators, render_mode),
             
@@ -277,29 +280,50 @@ class RenderPlanEngineV2:
     # LAYER B: STRUCTURE
     # ═══════════════════════════════════════════════════════════════
     
+    MAX_CHART_SWINGS = 4  # Max swings to render on chart
+    
     def _build_structure_layer(self, structure: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Build structure layer.
+        Build structure layer for CHART RENDERING.
         
-        Limited to:
-        - 6 recent swings
-        - 1 CHOCH
-        - 1 BOS
-        - Key HH/HL/LH/LL labels
-        
-        Rendered as subdued lines, NOT dominant.
+        STRICT LIMITS for readability:
+        - MAX 4 swings (not 6!)
+        - 1 CHOCH max
+        - 1 BOS max
+        - Prioritize HH/LL over HL/LH
         """
         if not structure:
             return {
                 "swings": [],
                 "choch": None,
                 "bos": None,
-                "internal_structure": None,
                 "bias": "neutral",
             }
         
-        # Get swings (limit to last 6)
-        swings = structure.get("swings", [])[-self.MAX_STRUCTURE_SWINGS:]
+        # Get swings and normalize format
+        raw_swings = structure.get("swings", [])
+        
+        # Prioritize: HH/LL are more important than HL/LH
+        def swing_importance(s):
+            label = s.get("label", s.get("type", ""))
+            if label in ["HH", "LL"]:
+                return 2
+            elif label in ["HL", "LH"]:
+                return 1
+            return 0
+        
+        # Sort by importance, then take last MAX_CHART_SWINGS
+        sorted_swings = sorted(raw_swings, key=lambda s: (swing_importance(s), s.get("time", 0)))
+        limited_swings = sorted_swings[-self.MAX_CHART_SWINGS:]
+        
+        # Normalize format: label → type
+        normalized = []
+        for s in limited_swings:
+            normalized.append({
+                "time": s.get("time"),
+                "price": s.get("price"),
+                "type": s.get("label", s.get("type", "H")),  # HH/HL/LH/LL
+            })
         
         # Get most recent CHOCH
         choch_list = structure.get("choch", [])
@@ -310,18 +334,101 @@ class RenderPlanEngineV2:
         bos = bos_list[-1] if bos_list else structure.get("last_bos")
         
         return {
-            "swings": swings,
+            "swings": normalized,
             "choch": choch,
             "bos": bos,
-            "trend": structure.get("trend", "unknown"),
-            "internal_structure": structure.get("internal_structure"),
-            "external_structure": structure.get("external_structure"),
             "bias": structure.get("bias", "neutral"),
-            "hh_count": structure.get("hh_count", 0),
-            "hl_count": structure.get("hl_count", 0),
-            "lh_count": structure.get("lh_count", 0),
-            "ll_count": structure.get("ll_count", 0),
         }
+
+    # ═══════════════════════════════════════════════════════════════
+    # LAYER B2: KEY LEVELS (MAX 5 for chart readability)
+    # ═══════════════════════════════════════════════════════════════
+    
+    MAX_CHART_LEVELS = 5
+    
+    def _build_levels_layer(
+        self,
+        structure: Dict[str, Any],
+        liquidity: Dict[str, Any],
+        current_price: float,
+    ) -> List[Dict[str, Any]]:
+        """
+        Build key levels for chart rendering.
+        
+        STRICT LIMIT: MAX 5 levels.
+        
+        Sources:
+        - structure.active_supports / active_resistances
+        - liquidity.key_levels
+        - swing highs/lows as implicit levels
+        
+        Scoring:
+        - touches * 0.5
+        - recency * 0.3
+        - volume * 0.2
+        """
+        levels = []
+        
+        # 1. From structure (supports/resistances)
+        if structure:
+            for lvl in structure.get("active_supports", []):
+                levels.append({
+                    "price": lvl.get("price", lvl) if isinstance(lvl, dict) else lvl,
+                    "type": "support",
+                    "strength": lvl.get("strength", 0.5) if isinstance(lvl, dict) else 0.5,
+                    "source": "structure",
+                })
+            for lvl in structure.get("active_resistances", []):
+                levels.append({
+                    "price": lvl.get("price", lvl) if isinstance(lvl, dict) else lvl,
+                    "type": "resistance",
+                    "strength": lvl.get("strength", 0.5) if isinstance(lvl, dict) else 0.5,
+                    "source": "structure",
+                })
+        
+        # 2. From liquidity key_levels
+        if liquidity:
+            for lvl in liquidity.get("key_levels", []):
+                price = lvl.get("price", lvl) if isinstance(lvl, dict) else lvl
+                levels.append({
+                    "price": price,
+                    "type": "resistance" if price > current_price else "support",
+                    "strength": lvl.get("strength", 0.6) if isinstance(lvl, dict) else 0.6,
+                    "source": "liquidity",
+                })
+        
+        # 3. From swing points (HH/LL as strong levels)
+        if structure:
+            for swing in structure.get("swings", []):
+                label = swing.get("label", swing.get("type", ""))
+                if label in ["HH", "LL"]:
+                    price = swing.get("price")
+                    if price:
+                        levels.append({
+                            "price": price,
+                            "type": "resistance" if label == "HH" else "support",
+                            "strength": 0.8,  # HH/LL are strong
+                            "source": "swing",
+                        })
+        
+        # Deduplicate by price (within 0.5% tolerance)
+        unique_levels = []
+        for lvl in levels:
+            is_duplicate = False
+            for existing in unique_levels:
+                if abs(lvl["price"] - existing["price"]) / existing["price"] < 0.005:
+                    # Keep the stronger one
+                    if lvl["strength"] > existing["strength"]:
+                        existing.update(lvl)
+                    is_duplicate = True
+                    break
+            if not is_duplicate:
+                unique_levels.append(lvl)
+        
+        # Sort by strength and take top MAX_CHART_LEVELS
+        sorted_levels = sorted(unique_levels, key=lambda x: x["strength"], reverse=True)
+        return sorted_levels[:self.MAX_CHART_LEVELS]
+
     
     # ═══════════════════════════════════════════════════════════════
     # LAYER C: INDICATORS

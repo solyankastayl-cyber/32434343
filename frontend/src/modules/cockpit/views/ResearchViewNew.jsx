@@ -759,7 +759,22 @@ const ResearchView = () => {
   };
   
   const pattern = getActivePattern();
-  const levels = setupData?.levels || [];
+  
+  // LEVELS — use from render_plan (max 5, ranked by strength)
+  const levels = React.useMemo(() => {
+    const rpLevels = setupData?.render_plan?.levels;
+    if (rpLevels?.length) {
+      // Convert to format ResearchChart expects
+      return rpLevels.map(l => ({
+        price: l.price,
+        type: l.type, // support/resistance
+        strength: l.strength,
+        source: l.source,
+      }));
+    }
+    return setupData?.levels || [];
+  }, [setupData?.render_plan?.levels, setupData?.levels]);
+  
   const structure = setupData?.structure;
   const setup = setupData?.setup;
   
@@ -783,8 +798,41 @@ const ResearchView = () => {
   // STRUCTURE VISUALIZATION — pivot points, BOS/CHOCH, trendlines
   const structureVisualization = setupData?.structure_visualization || null;
   
-  // CHART STRUCTURE — full price action structure (swings, legs, labels, breaks)
-  const chartStructure = setupData?.chart_structure || null;
+  // CHART STRUCTURE — build from render_plan.structure for chart rendering
+  // Format: { labels: [{time, price, label, type}], breaks: [...], legs: [...] }
+  const chartStructure = React.useMemo(() => {
+    const rpStructure = setupData?.render_plan?.structure;
+    if (!rpStructure?.swings?.length) return null;
+    
+    // Convert swings to labels format that ResearchChart expects
+    const labels = rpStructure.swings.map(s => ({
+      time: s.time,
+      price: s.price,
+      label: s.type, // HH/HL/LH/LL
+      type: s.type?.includes('H') && s.type !== 'HL' ? 'high' : 'low',
+    }));
+    
+    // Build breaks from BOS/CHOCH
+    const breaks = [];
+    if (rpStructure.bos) {
+      breaks.push({
+        time: rpStructure.bos.time,
+        level: rpStructure.bos.price,
+        type: 'bos',
+        direction: rpStructure.bos.direction,
+      });
+    }
+    if (rpStructure.choch) {
+      breaks.push({
+        time: rpStructure.choch.time,
+        level: rpStructure.choch.price,
+        type: 'choch',
+        direction: rpStructure.choch.direction,
+      });
+    }
+    
+    return { labels, breaks, legs: [] };
+  }, [setupData?.render_plan?.structure]);
   
   // TA CONTEXT — unified contributions from all TA sources
   const taContext = setupData?.ta_context || null;

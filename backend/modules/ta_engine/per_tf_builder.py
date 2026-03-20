@@ -51,16 +51,40 @@ from modules.ta_engine.setup.indicator_engine import get_indicator_engine
 from modules.ta_engine.indicators import get_indicator_registry, get_confluence_engine
 from modules.ta_engine.indicators.indicator_visualization import IndicatorVisualizationEngine
 from modules.ta_engine.contribution import get_contribution_engine
+from modules.ta_engine.render_plan import get_render_plan_engine_v2
+from modules.ta_engine.market_state import get_market_state_engine
+from modules.ta_engine.structure import StructureVisualizationBuilder
 
 
 # Singleton for visualization engine
 _indicator_viz_engine = None
+_render_plan_engine_v2 = None
+_market_state_engine = None
+_structure_viz_builder = None
 
 def get_indicator_viz_engine():
     global _indicator_viz_engine
     if _indicator_viz_engine is None:
         _indicator_viz_engine = IndicatorVisualizationEngine()
     return _indicator_viz_engine
+
+def _get_render_plan_engine():
+    global _render_plan_engine_v2
+    if _render_plan_engine_v2 is None:
+        _render_plan_engine_v2 = get_render_plan_engine_v2()
+    return _render_plan_engine_v2
+
+def _get_market_state_engine():
+    global _market_state_engine
+    if _market_state_engine is None:
+        _market_state_engine = get_market_state_engine()
+    return _market_state_engine
+
+def _get_structure_viz_builder():
+    global _structure_viz_builder
+    if _structure_viz_builder is None:
+        _structure_viz_builder = StructureVisualizationBuilder()
+    return _structure_viz_builder
 
 
 # TF Configuration
@@ -373,6 +397,59 @@ class PerTimeframeBuilder:
         )
         
         # =============================================
+        # STEP 11: BUILD RENDER PLAN V2 (for clean chart rendering)
+        # =============================================
+        print(f"[PerTF] Step 11: Render plan v2...")
+        try:
+            # Compute market state
+            ms_engine = _get_market_state_engine()
+            market_state = ms_engine.analyze(candles)
+            
+            # Build structure visualization with swings
+            viz_builder = _get_structure_viz_builder()
+            structure_viz = viz_builder.build(
+                pivots_high=pivot_highs_raw,
+                pivots_low=pivot_lows_raw,
+                structure_context=structure_context_dict,
+                candles=candles,
+            )
+            
+            # Merge structure_context with visualization
+            events = structure_viz.get("events", [])
+            bos_event = next((e for e in events if "bos" in e.get("type", "")), None)
+            choch_event = next((e for e in events if "choch" in e.get("type", "")), None)
+            
+            structure_for_render = {
+                **structure_context_dict,
+                "swings": structure_viz.get("pivot_points", []),
+                "bos": bos_event,
+                "choch": choch_event,
+            }
+            
+            # Get patterns as list
+            patterns = []
+            if primary_pattern:
+                patterns.append(primary_pattern.to_dict())
+            
+            # Build render plan
+            rp_engine = _get_render_plan_engine()
+            render_plan = rp_engine.build(
+                timeframe=timeframe,
+                current_price=current_price,
+                market_state=market_state.to_dict(),
+                structure=structure_for_render,
+                indicators=indicators_viz,
+                patterns=patterns,
+                liquidity=liquidity,
+                execution=execution,
+                poi=poi,
+            )
+            print(f"[PerTF] Render plan built: swings={len(render_plan.get('structure', {}).get('swings', []))}")
+        except Exception as e:
+            print(f"[PerTF] Render plan error: {e}")
+            render_plan = None
+        
+        # =============================================
         # ASSEMBLE RESULT
         # =============================================
         elapsed = time_module.time() - start_time
@@ -413,6 +490,9 @@ class PerTimeframeBuilder:
             
             # Chain highlighting
             "chain_map": chain_map,
+            
+            # RENDER PLAN V2 — for clean chart rendering
+            "render_plan": render_plan,
             
             # Meta
             "timestamp": datetime.now(timezone.utc).isoformat(),
