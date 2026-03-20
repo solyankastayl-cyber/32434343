@@ -860,17 +860,67 @@ const ResearchView = () => {
   const taComposition = setupData?.ta_composition || null;
   
   // ═══════════════════════════════════════════════════════════════
-  // MARKET MECHANICS — POI, Liquidity, Sweeps, CHOCH Validation
+  // MARKET MECHANICS — POI, Liquidity from render_plan
   // ═══════════════════════════════════════════════════════════════
   const poi = setupData?.poi || null;
-  const liquidity = setupData?.liquidity || null;
+  
+  // LIQUIDITY — prioritize render_plan over raw data
+  const liquidity = React.useMemo(() => {
+    const rpLiquidity = setupData?.render_plan?.liquidity;
+    if (rpLiquidity) {
+      // Convert render_plan format to MarketMechanicsRenderer format
+      const pools = [];
+      
+      // Add BSL (above price)
+      (rpLiquidity.bsl || []).forEach(bsl => {
+        pools.push({
+          type: 'buy_side_liquidity',
+          side: 'high',
+          price: bsl.price,
+          strength: bsl.strength,
+          touches: bsl.touches,
+          label: bsl.label || `BSL @ ${bsl.price?.toFixed(0)}`,
+          status: 'active',
+        });
+      });
+      
+      // Add SSL (below price)
+      (rpLiquidity.ssl || []).forEach(ssl => {
+        pools.push({
+          type: 'sell_side_liquidity',
+          side: 'low',
+          price: ssl.price,
+          strength: ssl.strength,
+          touches: ssl.touches,
+          label: ssl.label || `SSL @ ${ssl.price?.toFixed(0)}`,
+          status: 'active',
+        });
+      });
+      
+      return {
+        pools,
+        sweeps: rpLiquidity.sweeps || [],
+        equal_highs: [],
+        equal_lows: [],
+      };
+    }
+    return setupData?.liquidity || null;
+  }, [setupData?.render_plan?.liquidity, setupData?.liquidity]);
+  
   const chochValidation = setupData?.choch_validation || null;
   const displacement = setupData?.displacement || null;
   
   // ═══════════════════════════════════════════════════════════════
-  // EXECUTION & CHAIN — NEW from per-TF pipeline
+  // EXECUTION — prioritize render_plan execution (always visible!)
   // ═══════════════════════════════════════════════════════════════
-  const execution = setupData?.execution || null;
+  const execution = React.useMemo(() => {
+    const rpExecution = setupData?.render_plan?.execution;
+    if (rpExecution) {
+      return rpExecution;
+    }
+    return setupData?.execution || null;
+  }, [setupData?.render_plan?.execution, setupData?.execution]);
+  
   const chainMap = setupData?.chain_map || [];
   const unifiedSetupData = setupData?.unified_setup || null;
   const fib = setupData?.fib || null;

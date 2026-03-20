@@ -1,80 +1,54 @@
 # TA Engine — PRD
 
-## Status: 85% READY
+## Status: 90% READY
 
-## What Works (Backend)
+## Frontend Integration Complete
 
-### Render Plan V2 — All Layers
+### Data Flow (render_plan → chart)
 ```
-✅ MARKET STATE
-   trend: uptrend (weak)
-   wyckoff: markup
-
-✅ STRUCTURE (max 4 swings)
-   4 swings: HL, HH, HH, LL
-   bias: neutral
-
-✅ LEVELS (max 5)
-   3 levels: 2 resistance, 1 support
-
-✅ INDICATORS (smart selection)
-   Trending → EMA 20/50 + RSI
-   Ranging → BBands + RSI
-   High Volatility → VWAP + ATR
-
-✅ PATTERNS
-   has_figure: false (честно)
-   reason: Market in channel/range mode
-
-✅ LIQUIDITY
-   BSL: 2 zones (71372, 74034)
-   SSL: 2 zones (68877, 66490)
-   Sweeps: 1 (SSL @ 68877)
-
-✅ EXECUTION
-   status: no_trade
-   reason: unified setup invalid
+selectedTF → fetch MTF → render_plan
+→ chartStructure (from swings) → ResearchChart labels
+→ levels → horizontal price lines
+→ liquidity → BSL/SSL/sweeps via MarketMechanicsRenderer
+→ indicators → EMA 20/50 overlay + RSI pane
+→ execution → always visible badge
 ```
 
-### 6 Timeframes — ISOLATED
+### ResearchViewNew.jsx Changes
+- `chartStructure` built from `render_plan.structure.swings`
+- `levels` from `render_plan.levels` (max 5)
+- `liquidity` converted to MarketMechanicsRenderer format
+- `execution` from `render_plan.execution`
+
+### ResearchChart.jsx Changes
+- Levels render from props.levels first (render_plan)
+- Fallback to baseLayer only if no render_plan levels
+- Fixed syntax error (missing `}`)
+
+### Data Contract (4H Timeframe)
 ```
-4H:   uptrend   | 4 swings | 3 levels | EMA+RSI | 2 BSL, 2 SSL
-1D:   downtrend | 4 swings | 3 levels
-7D:   downtrend | 4 swings | 2 levels
-30D:  downtrend | 4 swings | 3 levels
-180D: downtrend | 4 swings | 3 levels
-1Y:   downtrend | 4 swings | 3 levels
+✅ chartStructure: 4 swings (HL, HH, HH, LL)
+✅ levels: 3 (2 resistance, 1 support)
+✅ liquidity: 2 BSL + 2 SSL + 1 sweep
+✅ indicators: EMA 20/50 + RSI
+✅ execution: no_trade + reason
 ```
 
-### Pattern Engine
-- 4 validators: Triangle, Channel, DoublePattern, HeadShoulders
-- Channels filtered as market_state (correct)
-- Real patterns (double_top, triangle) shown when detected
-- has_figure: false = honest "no pattern"
-
-### Liquidity Engine
-- BSL/SSL from pools
-- Sweeps with direction + description
-- Max 2 BSL, 2 SSL for readability
+### Render Order on Chart
+1. Candles
+2. Levels (max 5 horizontal lines)
+3. Structure (swings with HH/HL/LH/LL labels)
+4. Liquidity (BSL/SSL zones)
+5. Indicators (EMA overlay + RSI pane)
+6. Pattern (only if has_figure=true)
+7. Execution (always visible badge)
 
 ## What's Left
+- Visual validation when preview restores
+- Chain highlighting (deferred)
+- Pattern geometry (when real pattern exists)
 
-### Frontend Integration
-- [ ] Render swings on chart (HH green, LL red)
-- [ ] Render levels as horizontal lines
-- [ ] Render BSL/SSL zones
-- [ ] Show execution badge always
-
-### Pattern Detection
-- When real pattern exists → show on chart
-- Currently: no active patterns (market in range)
-
-## Files Modified
-- `render_plan_engine_v2.py` — all layers, smart indicators, liquidity fix
-- `per_tf_builder.py` — render_plan integration
-- `ResearchViewNew.jsx` — TF switching, data flow
-
-## Next Tasks
-1. Frontend: render structure/levels/liquidity на графике
-2. Test with asset that HAS pattern (ETH wedge, etc.)
-3. Visual validation when preview restores
+## Files Modified (This Session)
+- `render_plan_engine_v2.py` — liquidity layer fix, pattern hint
+- `ResearchViewNew.jsx` — liquidity/execution from render_plan
+- `ResearchChart.jsx` — levels render, syntax fix

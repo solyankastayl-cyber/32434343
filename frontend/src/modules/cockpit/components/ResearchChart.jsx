@@ -899,8 +899,37 @@ const ResearchChart = ({
           chLowerSeries.setData([lowerStart, lowerEnd].sort((a, b) => a.time - b.time));
         }
       });
+    }
 
-      // Render base layer S/R levels - thin, dashed, label on line only (price on scale auto)
+    // 4. RENDER LEVELS FROM RENDER_PLAN (max 5, ranked by strength)
+    // Prioritize render_plan.levels over baseLayer for clean visualization
+    if (showLevels && levels && levels.length > 0) {
+      console.log('[ResearchChart] Rendering levels from render_plan:', levels.length);
+      const priceRange = mapped.length > 0 ? Math.max(...mapped.map(c => c.high)) - Math.min(...mapped.map(c => c.low)) : 0;
+      const threshold = priceRange * 0.015; // 1.5% distance threshold
+      const drawnPrices = [];
+      
+      levels.slice(0, 5).forEach(level => {
+        // Skip if too close to existing level
+        const tooClose = drawnPrices.some(p => Math.abs(p - level.price) < threshold);
+        if (tooClose) return;
+        drawnPrices.push(level.price);
+        
+        const isSupport = level.type === 'support';
+        const strength = level.strength || 0.5;
+        const lineWidth = strength >= 0.7 ? 2 : 1;
+        
+        priceSeries.createPriceLine({
+          price: level.price,
+          color: isSupport ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)',
+          lineWidth: lineWidth,
+          lineStyle: 1, // dashed
+          axisLabelVisible: true,
+          title: isSupport ? 'S' : 'R',
+        });
+      });
+    } else if (showBaseLayer && baseLayer) {
+      // Fallback: use baseLayer if no render_plan levels
       const priceRange = mapped.length > 0 ? Math.max(...mapped.map(c => c.high)) - Math.min(...mapped.map(c => c.low)) : 0;
       const threshold = priceRange * 0.02;
       const drawnBasePrices = [];
@@ -914,8 +943,8 @@ const ResearchChart = ({
           color: 'rgba(34, 197, 94, 0.6)',
           lineWidth: 1,
           lineStyle: 1,
-          axisLabelVisible: true,  // Shows price on scale
-          title: 'Support',        // Label on line (no price, no %)
+          axisLabelVisible: true,
+          title: 'Support',
         });
       });
 
@@ -928,16 +957,13 @@ const ResearchChart = ({
           color: 'rgba(239, 68, 68, 0.6)',
           lineWidth: 1,
           lineStyle: 1,
-          axisLabelVisible: true,  // Shows price on scale
-          title: 'Resistance',     // Label on line (no price, no %)
+          axisLabelVisible: true,
+          title: 'Resistance',
         });
       });
     }
 
-    // 4. RENDER LEVELS - DISABLED (already rendered from baseLayer above to avoid duplication)
-    // Base layer S/R is the single source of truth for support/resistance levels
-
-    // 4. RENDER TARGETS (secondary, thin lines)
+    // 5. RENDER TARGETS (secondary, thin lines)
     if (showTargets && setup) {
       const targetLines = [];
       
