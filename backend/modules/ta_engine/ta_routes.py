@@ -16,6 +16,8 @@ from modules.ta_engine.mtf import get_mtf_orchestrator
 from modules.ta_engine.render_plan import get_render_plan_engine, get_render_plan_engine_v2
 from modules.ta_engine.market_state import get_market_state_engine
 from modules.ta_engine.patterns.pattern_figure_registry import get_pattern_figure_registry
+from modules.ta_engine.structure import StructureVisualizationBuilder
+from modules.ta_engine.setup.pattern_validator_v2 import get_pattern_validator_v2
 from modules.data.coinbase_auto_init import CoinbaseAutoInit
 
 router = APIRouter(prefix="/api/ta-engine", tags=["ta-engine"])
@@ -27,6 +29,7 @@ _render_plan_engine = get_render_plan_engine()
 _render_plan_engine_v2 = get_render_plan_engine_v2()
 _market_state_engine = get_market_state_engine()
 _pattern_figure_registry = get_pattern_figure_registry()
+_structure_viz_builder = StructureVisualizationBuilder()
 
 # Simple cache for MTF responses (60 seconds TTL)
 _mtf_cache: Dict[str, Dict[str, Any]] = {}
@@ -630,8 +633,39 @@ async def get_render_plan_v2(
         # Compute market state (Layer A)
         market_state = _market_state_engine.analyze(candles)
         
-        # Extract components
-        structure = tf_data.get("structure_context", {})
+        # Build structure visualization (swings, BOS, CHOCH for chart)
+        # First get pivots
+        tf_config = {
+            "4H": {"lookback": 200, "pivot_window": 5, "min_pivot_distance": 10, "pattern_window": 150, "candle_type": "4h"},
+            "1D": {"lookback": 300, "pivot_window": 7, "min_pivot_distance": 15, "pattern_window": 200, "candle_type": "1d"},
+        }.get(tf_upper, {"lookback": 300, "pivot_window": 7, "min_pivot_distance": 15, "pattern_window": 200, "candle_type": "1d"})
+        
+        validator = get_pattern_validator_v2(tf_upper, tf_config)
+        pivot_highs_raw, pivot_lows_raw = validator.find_pivots(candles)
+        
+        # Build structure visualization with swings, events, trendlines
+        structure_context = tf_data.get("structure_context", {})
+        structure_viz = _structure_viz_builder.build(
+            pivots_high=pivot_highs_raw,
+            pivots_low=pivot_lows_raw,
+            structure_context=structure_context,
+            candles=candles,
+        )
+        
+        # Merge structure context metrics with visualization data
+        # Extract BOS/CHOCH from events list
+        events = structure_viz.get("events", [])
+        bos_event = next((e for e in events if "bos" in e.get("type", "")), None)
+        choch_event = next((e for e in events if "choch" in e.get("type", "")), None)
+        
+        structure = {
+            **structure_context,
+            "swings": structure_viz.get("pivot_points", []),
+            "bos": bos_event,
+            "choch": choch_event,
+            "active_trendlines": structure_viz.get("active_trendlines", []),
+        }
+        
         indicators = tf_data.get("indicators", {})
         liquidity = tf_data.get("liquidity", {})
         execution = tf_data.get("execution", {})
